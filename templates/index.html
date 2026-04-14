@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Azure 资源迁移可行性分析</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        :root { --primary: #0078d4; --primary-dark: #005a9e; --bg: #f3f2f1; --card-bg: #fff; --text: #323130; --text-secondary: #605e5c; --border: #e1dfdd; }
+        .lang-switch { display: inline-flex; gap: 2px; margin-left: 12px; }
+        .lang-switch button { background: transparent; border: 1px solid rgba(255,255,255,0.4); color: rgba(255,255,255,0.7); border-radius: 3px; padding: 1px 8px; font-size: 12px; cursor: pointer; transition: all 0.15s; }
+        .lang-switch button:hover { background: rgba(255,255,255,0.15); color: #fff; }
+        .lang-switch button.active { background: #fff; color: var(--primary); font-weight: 600; }
+        .btn-logout { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,0.5); border-radius: 4px; padding: 4px 14px; font-size: 13px; text-decoration: none; transition: all 0.15s; }
+        .btn-logout:hover { background: rgba(255,255,255,0.15); color: #fff; border-color: rgba(255,255,255,0.8); }
+        body { min-height: 100vh; display: flex; flex-direction: column; background: var(--bg); color: var(--text); font-family: 'Segoe UI', -apple-system, sans-serif; line-height: 1.6; }
+        main { flex: 1; }
+        .hero { background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); color: white; }
+        .card-hover:hover { transform: translateY(-2px); box-shadow: 0 .5rem 1rem rgba(0,0,0,.1); transition: all .2s; }
+        .badge-yes { background-color: #107c10; }
+        .badge-no { background-color: #d13438; }
+        .badge-unknown { background-color: #6c757d; }
+        .table-container { max-height: 70vh; overflow-y: auto; overflow-x: auto; }
+        .table-container table { table-layout: fixed; border-collapse: collapse; }
+        .table-container td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .table-container th { position: relative; user-select: none; white-space: nowrap; }
+        .th-resize {
+            position: absolute; right: 0; top: 0; bottom: 0; width: 5px;
+            cursor: col-resize; z-index: 2;
+        }
+        .th-resize:hover, .th-resize.active { background: rgba(255,255,255,0.4); }
+        .view { display: none; }
+        .view.active { display: block; }
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-dark" style="background:var(--primary);box-shadow:0 2px 4px rgba(0,0,0,.15);padding:8px 24px;">
+        <div style="display:flex;align-items:center;width:100%;position:relative;">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <a class="navbar-brand" href="#" onclick="showView('login')" style="font-size:18px;font-weight:600;white-space:nowrap;margin:0;">
+                    <i class="bi bi-arrow-left-right"></i> <span data-i18n="navTitle">Azure 资源迁移分析</span>
+                </a>
+                <span style="font-size:11px;font-weight:normal;opacity:0.6;color:#fff;white-space:nowrap;">vibe coding by Github Copilot</span>
+            </div>
+            <div style="position:absolute;left:50%;transform:translateX(-50%);">
+                <div class="lang-switch">
+                    <button onclick="switchLang('zh')" id="langZh" class="active">简</button>
+                    <button onclick="switchLang('zht')" id="langZht">繁</button>
+                    <button onclick="switchLang('en')" id="langEn">EN</button>
+                    <button onclick="switchLang('ja')" id="langJa">JA</button>
+                    <button onclick="switchLang('fr')" id="langFr">FR</button>
+                </div>
+            </div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:12px;white-space:nowrap;">
+                <span style="font-size:11px;opacity:0.7;color:#fff;">Deployed: {{ build_time }}</span>
+                <div id="navUser" style="display:none;align-items:center;gap:10px;">
+                    <span style="color:#fff;font-size:14px;"><i class="bi bi-person-circle"></i> <span id="userName"></span></span>
+                    <a class="btn-logout" href="#" onclick="signOut()"><i class="bi bi-box-arrow-right"></i> <span data-i18n="logout">退出</span></a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main>
+        <!-- ===== Login View ===== -->
+        <div id="viewLogin" class="view active">
+            <section class="hero py-5">
+                <div class="container text-center py-5">
+                    <h1 class="display-4 fw-bold mb-3">
+                        <i class="bi bi-arrow-left-right"></i> <span data-i18n="heroTitle">Azure 资源迁移可行性分析</span>
+                    </h1>
+                    <p class="lead mb-4" data-i18n="heroDesc">快速查询您 Azure 订阅中的资源是否支持跨订阅 / 跨资源组迁移</p>
+                    <button class="btn btn-light btn-lg px-5 py-3" onclick="signIn('common')">
+                        <i class="bi bi-microsoft"></i> <span data-i18n="loginBtn">使用 Microsoft 企业账号登录</span>
+                    </button>
+                    <div style="margin-top:24px;">
+                        <span onclick="signIn(AUSTIN_TENANT)"
+                              style="cursor:pointer;font-size:11px;color:rgba(255,255,255,0.35);transition:opacity 0.3s;"
+                              onmouseenter="this.style.color='rgba(255,255,255,0.9)'"
+                              onmouseleave="this.style.color='rgba(255,255,255,0.35)'"
+                              title="🥚">🐾 woof</span>
+                    </div>
+                </div>
+            </section>
+            <div class="container py-5">
+                <div class="row g-4">
+                    <div class="col-md-4">
+                        <div class="card card-hover h-100 border-0 shadow-sm">
+                            <div class="card-body text-center p-4">
+                                <i class="bi bi-list-check fs-1 text-primary"></i>
+                                <h5 class="mt-3" data-i18n="feat1Title">资源清单</h5>
+                                <p class="text-muted" data-i18n="feat1Desc">自动获取订阅内所有资源，无需手动整理</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card card-hover h-100 border-0 shadow-sm">
+                            <div class="card-body text-center p-4">
+                                <i class="bi bi-shield-check fs-1 text-success"></i>
+                                <h5 class="mt-3" data-i18n="feat2Title">迁移评估</h5>
+                                <p class="text-muted" data-i18n="feat2Desc">依据官方文档，逐一分析资源迁移能力</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card card-hover h-100 border-0 shadow-sm">
+                            <div class="card-body text-center p-4">
+                                <i class="bi bi-file-earmark-spreadsheet fs-1 text-info"></i>
+                                <h5 class="mt-3" data-i18n="feat3Title">报告导出</h5>
+                                <p class="text-muted" data-i18n="feat3Desc">一键导出 CSV 格式报告，方便团队协作</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== Subscriptions View ===== -->
+        <div id="viewSubs" class="view">
+            <div class="container py-5">
+                <h2 class="mb-4"><i class="bi bi-card-list"></i> <span data-i18n="subsTitle">选择要分析的订阅</span></h2>
+                <p class="text-muted mb-4" data-i18n="subsDesc">以下列出了您有权访问的所有 Azure 订阅，请选择一个进行资源迁移可行性分析。</p>
+                <div id="subsLoading" class="text-center py-4">
+                    <div class="spinner-border text-primary"></div>
+                    <p class="mt-2 text-muted" data-i18n="subsLoading">正在获取订阅列表...</p>
+                </div>
+                <div id="subsList" class="row g-3"></div>
+            </div>
+        </div>
+
+        <!-- ===== Resources View ===== -->
+        <div id="viewResources" class="view">
+            <div class="container-fluid py-4 px-4">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h2><i class="bi bi-diagram-3"></i> <span data-i18n="resTitle">资源迁移可行性分析</span></h2>
+                        <small class="text-muted"><span data-i18n="resSub">订阅</span>: <span id="currentSubName"></span></small>
+                    </div>
+                    <div>
+                        <button class="btn btn-outline-secondary me-2" onclick="showView('subs')">
+                            <i class="bi bi-arrow-left"></i> <span data-i18n="back">返回</span>
+                        </button>
+                        <button id="btnExport" class="btn btn-success" onclick="exportCSV()" disabled>
+                            <i class="bi bi-download"></i> <span data-i18n="exportCsv">导出 CSV</span>
+                        </button>
+                    </div>
+                </div>
+                <!-- Summary Cards -->
+                <div class="row g-3 mb-4" id="summaryCards" style="display:none;">
+                    <div class="col-md-3">
+                        <div class="card border-0 text-center" style="box-shadow:0 1.6px 3.6px rgba(0,0,0,.13),0 0.3px 0.9px rgba(0,0,0,.1);border-radius:8px;">
+                            <div class="card-body"><h3 class="text-primary" id="totalCount">0</h3><small style="color:var(--text-secondary);" data-i18n="totalRes">总资源数</small></div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-0 text-center" style="box-shadow:0 1.6px 3.6px rgba(0,0,0,.13),0 0.3px 0.9px rgba(0,0,0,.1);border-radius:8px;">
+                            <div class="card-body"><h3 style="color:#107c10;" id="movableCount">0</h3><small style="color:var(--text-secondary);" data-i18n="movable">可跨订阅迁移</small></div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-0 text-center" style="box-shadow:0 1.6px 3.6px rgba(0,0,0,.13),0 0.3px 0.9px rgba(0,0,0,.1);border-radius:8px;">
+                            <div class="card-body"><h3 style="color:#d13438;" id="notMovableCount">0</h3><small style="color:var(--text-secondary);" data-i18n="notMovable">不可跨订阅迁移</small></div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-0 text-center" style="box-shadow:0 1.6px 3.6px rgba(0,0,0,.13),0 0.3px 0.9px rgba(0,0,0,.1);border-radius:8px;">
+                            <div class="card-body"><h3 style="color:var(--text-secondary);" id="unknownCount">0</h3><small style="color:var(--text-secondary);" data-i18n="unknown">未知状态</small></div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Filters -->
+                <div class="row mb-3" id="filterRow" style="display:none;">
+                    <div class="col-md-4">
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-search"></i></span>
+                            <input type="text" class="form-control" id="searchInput" data-i18n-placeholder="searchPlaceholder" placeholder="搜索资源名称或类型..." oninput="applyFilters()">
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <select class="form-select" id="filterMove" onchange="applyFilters()">
+                            <option value="all" data-i18n="filterAll">全部状态</option>
+                            <option value="yes" data-i18n="filterYes">可迁移</option>
+                            <option value="no" data-i18n="filterNo">不可迁移</option>
+                            <option value="unknown" data-i18n="filterUnknown">未知</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <select class="form-select" id="filterRG" onchange="applyFilters()">
+                            <option value="all" data-i18n="filterAllRG">全部资源组</option>
+                        </select>
+                    </div>
+                </div>
+                <!-- Loading -->
+                <div id="resLoading" class="text-center py-5">
+                    <div class="spinner-border text-primary" style="width:3rem;height:3rem;"></div>
+                    <p class="mt-3 text-muted" data-i18n="resLoading">正在获取资源列表并分析迁移能力，请稍候...</p>
+                </div>
+                <div id="resError" class="alert alert-danger" style="display:none;"></div>
+                <!-- Table -->
+                <div class="table-container" id="tableContainer" style="display:none;">
+                    <table class="table table-striped table-hover align-middle" id="resTable">
+                        <thead class="table-dark sticky-top">
+                            <tr>
+                                <th style="width:40px;text-align:center;">#<span class="th-resize"></span></th>
+                                <th style="width:220px;"><span data-i18n="colName">资源名称</span><span class="th-resize"></span></th>
+                                <th style="width:280px;"><span data-i18n="colType">资源类型</span><span class="th-resize"></span></th>
+                                <th style="width:120px;"><span data-i18n="colLocation">位置</span><span class="th-resize"></span></th>
+                                <th style="width:120px;"><span data-i18n="colRG">资源组</span><span class="th-resize"></span></th>
+                                <th style="width:90px;text-align:center;"><span data-i18n="colMoveRG">跨资源组</span><span class="th-resize"></span></th>
+                                <th style="width:90px;text-align:center;"><span data-i18n="colMoveSub">跨订阅</span><span class="th-resize"></span></th>
+                            </tr>
+                        </thead>
+                        <tbody id="resourceBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="text-center py-3 mt-4" style="border-top:1px solid var(--border);">
+        <small style="color:var(--text-secondary);">
+            <span data-i18n="footerSource">数据来源</span>: <a href="https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/move-support-resources" target="_blank">Microsoft Docs - Move Support Resources</a>
+        </small>
+    </footer>
+
+    <script>
+    // Force HTTPS
+    if (location.protocol === 'http:' && location.hostname !== 'localhost') {
+        location.replace('https://' + location.host + location.pathname + location.search + location.hash);
+    }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
+    <script>
+    if (typeof msal === 'undefined') {
+        document.write('<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"><\/script>');
+    }
+    </script>
+    <script>
+    // ===== i18n =====
+    const I18N = {
+        zh: {
+            navTitle: "Azure 资源迁移分析", heroTitle: "Azure 资源迁移可行性分析",
+            heroDesc: "快速查询您 Azure 订阅中的资源是否支持跨订阅 / 跨资源组迁移",
+            loginBtn: "使用 Microsoft 企业账号登录", logout: "退出",
+            feat1Title: "资源清单", feat1Desc: "自动获取订阅内所有资源，无需手动整理",
+            feat2Title: "迁移评估", feat2Desc: "依据官方文档，逐一分析资源迁移能力",
+            feat3Title: "报告导出", feat3Desc: "一键导出 CSV 格式报告，方便团队协作",
+            subsTitle: "选择要分析的订阅", subsDesc: "以下列出了您有权访问的所有 Azure 订阅，请选择一个进行资源迁移可行性分析。",
+            subsLoading: "正在获取订阅列表...", resTitle: "资源迁移可行性分析", resSub: "订阅",
+            back: "返回", exportCsv: "导出 CSV",
+            totalRes: "总资源数", movable: "可跨订阅迁移", notMovable: "不可跨订阅迁移", unknown: "未知状态",
+            searchPlaceholder: "搜索资源名称或类型...",
+            filterAll: "全部状态", filterYes: "可迁移", filterNo: "不可迁移", filterUnknown: "未知",
+            filterAllRG: "全部资源组",
+            resLoading: "正在获取资源列表并分析迁移能力，请稍候...",
+            colName: "资源名称", colType: "资源类型", colLocation: "位置", colRG: "资源组",
+            colMoveRG: "跨资源组", colMoveSub: "跨订阅",
+            footerSource: "数据来源",
+            analyze: "分析", noSubs: "未找到任何订阅。", loadFail: "加载失败",
+            loginFail: "登录失败", msalFail: "MSAL 库加载失败，请刷新页面重试",
+            msalInitFail: "认证模块初始化失败", authLoading: "认证模块加载中，请稍候...",
+            csvHeader: "资源名称,资源类型,位置,资源组,跨资源组迁移,跨订阅迁移",
+            pageTitle: "Azure 资源迁移可行性分析", user: "用户",
+        },
+        zht: {
+            navTitle: "Azure 資源遷移分析", heroTitle: "Azure 資源遷移可行性分析",
+            heroDesc: "快速查詢您 Azure 訂閱中的資源是否支援跨訂閱 / 跨資源群組遷移",
+            loginBtn: "使用 Microsoft 企業帳號登入", logout: "登出",
+            feat1Title: "資源清單", feat1Desc: "自動取得訂閱內所有資源，無需手動整理",
+            feat2Title: "遷移評估", feat2Desc: "依據官方文件，逐一分析資源遷移能力",
+            feat3Title: "報告匯出", feat3Desc: "一鍵匯出 CSV 格式報告，方便團隊協作",
+            subsTitle: "選擇要分析的訂閱", subsDesc: "以下列出了您有權存取的所有 Azure 訂閱，請選擇一個進行資源遷移可行性分析。",
+            subsLoading: "正在取得訂閱清單...", resTitle: "資源遷移可行性分析", resSub: "訂閱",
+            back: "返回", exportCsv: "匯出 CSV",
+            totalRes: "總資源數", movable: "可跨訂閱遷移", notMovable: "不可跨訂閱遷移", unknown: "未知狀態",
+            searchPlaceholder: "搜尋資源名稱或類型...",
+            filterAll: "全部狀態", filterYes: "可遷移", filterNo: "不可遷移", filterUnknown: "未知",
+            filterAllRG: "全部資源群組",
+            resLoading: "正在取得資源清單並分析遷移能力，請稍候...",
+            colName: "資源名稱", colType: "資源類型", colLocation: "位置", colRG: "資源群組",
+            colMoveRG: "跨資源群組", colMoveSub: "跨訂閱",
+            footerSource: "資料來源",
+            analyze: "分析", noSubs: "未找到任何訂閱。", loadFail: "載入失敗",
+            loginFail: "登入失敗", msalFail: "MSAL 程式庫載入失敗，請重新整理頁面",
+            msalInitFail: "驗證模組初始化失敗", authLoading: "驗證模組載入中，請稍候...",
+            csvHeader: "資源名稱,資源類型,位置,資源群組,跨資源群組遷移,跨訂閱遷移",
+            pageTitle: "Azure 資源遷移可行性分析", user: "使用者",
+        },
+        en: {
+            navTitle: "Azure Resource Move Analysis", heroTitle: "Azure Resource Move Feasibility Analysis",
+            heroDesc: "Quickly check if resources in your Azure subscription support cross-subscription / cross-resource-group moves",
+            loginBtn: "Sign in with Microsoft Enterprise Account", logout: "Sign out",
+            feat1Title: "Resource Inventory", feat1Desc: "Automatically list all resources in a subscription",
+            feat2Title: "Move Assessment", feat2Desc: "Analyze resource move capability based on official docs",
+            feat3Title: "Report Export", feat3Desc: "One-click CSV export for team collaboration",
+            subsTitle: "Select a Subscription", subsDesc: "Below are all Azure subscriptions you have access to. Select one for resource move analysis.",
+            subsLoading: "Loading subscriptions...", resTitle: "Resource Move Feasibility Analysis", resSub: "Subscription",
+            back: "Back", exportCsv: "Export CSV",
+            totalRes: "Total Resources", movable: "Can Move (Sub)", notMovable: "Cannot Move (Sub)", unknown: "Unknown",
+            searchPlaceholder: "Search resource name or type...",
+            filterAll: "All Status", filterYes: "Movable", filterNo: "Not Movable", filterUnknown: "Unknown",
+            filterAllRG: "All Resource Groups",
+            resLoading: "Fetching resources and analyzing move capability, please wait...",
+            colName: "Resource Name", colType: "Resource Type", colLocation: "Location", colRG: "Resource Group",
+            colMoveRG: "Move RG", colMoveSub: "Move Sub",
+            footerSource: "Data Source",
+            analyze: "Analyze", noSubs: "No subscriptions found.", loadFail: "Load failed",
+            loginFail: "Login failed", msalFail: "MSAL library failed to load, please refresh",
+            msalInitFail: "Auth module init failed", authLoading: "Auth module loading, please wait...",
+            csvHeader: "Resource Name,Resource Type,Location,Resource Group,Move Resource Group,Move Subscription",
+            pageTitle: "Azure Resource Move Analysis", user: "User",
+        },
+        fr: {
+            navTitle: "Analyse de migration Azure", heroTitle: "Analyse de faisabilité de migration Azure",
+            heroDesc: "Vérifiez rapidement si les ressources de votre abonnement Azure prennent en charge le déplacement inter-abonnement / inter-groupe de ressources",
+            loginBtn: "Se connecter avec un compte Microsoft entreprise", logout: "Déconnexion",
+            feat1Title: "Inventaire", feat1Desc: "Listez automatiquement toutes les ressources d'un abonnement",
+            feat2Title: "Évaluation", feat2Desc: "Analysez la capacité de migration selon la documentation officielle",
+            feat3Title: "Exportation", feat3Desc: "Exportation CSV en un clic pour la collaboration d'équipe",
+            subsTitle: "Sélectionner un abonnement", subsDesc: "Voici tous les abonnements Azure auxquels vous avez accès. Sélectionnez-en un pour l'analyse de migration.",
+            subsLoading: "Chargement des abonnements...", resTitle: "Analyse de faisabilité de migration", resSub: "Abonnement",
+            back: "Retour", exportCsv: "Exporter CSV",
+            totalRes: "Total ressources", movable: "Déplaçable (Abo)", notMovable: "Non déplaçable (Abo)", unknown: "Inconnu",
+            searchPlaceholder: "Rechercher nom ou type de ressource...",
+            filterAll: "Tous les statuts", filterYes: "Déplaçable", filterNo: "Non déplaçable", filterUnknown: "Inconnu",
+            filterAllRG: "Tous les groupes",
+            resLoading: "Récupération des ressources et analyse de la capacité de migration, veuillez patienter...",
+            colName: "Nom", colType: "Type de ressource", colLocation: "Emplacement", colRG: "Groupe",
+            colMoveRG: "Dépl. GR", colMoveSub: "Dépl. Abo",
+            footerSource: "Source des données",
+            analyze: "Analyser", noSubs: "Aucun abonnement trouvé.", loadFail: "Échec du chargement",
+            loginFail: "Échec de connexion", msalFail: "Échec du chargement MSAL, veuillez rafraîchir",
+            msalInitFail: "Échec d'initialisation du module d'auth", authLoading: "Module d'auth en chargement...",
+            csvHeader: "Nom,Type de ressource,Emplacement,Groupe,Déplacement GR,Déplacement Abo",
+            pageTitle: "Analyse de migration Azure", user: "Utilisateur",
+        },
+        ja: {
+            navTitle: "Azure リソース移行分析", heroTitle: "Azure リソース移行可能性分析",
+            heroDesc: "Azure サブスクリプション内のリソースがサブスクリプション間 / リソースグループ間の移行をサポートしているか素早く確認",
+            loginBtn: "Microsoft 企業アカウントでサインイン", logout: "ログアウト",
+            feat1Title: "リソース一覧", feat1Desc: "サブスクリプション内の全リソースを自動取得",
+            feat2Title: "移行評価", feat2Desc: "公式ドキュメントに基づき移行能力を分析",
+            feat3Title: "レポート出力", feat3Desc: "ワンクリックでCSVエクスポート",
+            subsTitle: "サブスクリプションを選択", subsDesc: "アクセス可能な全てのAzureサブスクリプションです。分析するものを選択してください。",
+            subsLoading: "サブスクリプションを読み込み中...", resTitle: "リソース移行可能性分析", resSub: "サブスクリプション",
+            back: "戻る", exportCsv: "CSV出力",
+            totalRes: "総リソース数", movable: "移行可(サブ)", notMovable: "移行不可(サブ)", unknown: "不明",
+            searchPlaceholder: "リソース名またはタイプで検索...",
+            filterAll: "全てのステータス", filterYes: "移行可", filterNo: "移行不可", filterUnknown: "不明",
+            filterAllRG: "全てのリソースグループ",
+            resLoading: "リソースを取得し移行能力を分析中、お待ちください...",
+            colName: "リソース名", colType: "リソースタイプ", colLocation: "場所", colRG: "グループ",
+            colMoveRG: "RG移行", colMoveSub: "サブ移行",
+            footerSource: "データソース",
+            analyze: "解析", noSubs: "サブスクリプションが見つかりません。", loadFail: "読み込み失敗",
+            loginFail: "ログイン失敗", msalFail: "MSALライブラリの読み込みに失敗、ページを更新してください",
+            msalInitFail: "認証モジュールの初期化に失敗", authLoading: "認証モジュール読み込み中...",
+            csvHeader: "リソース名,リソースタイプ,場所,グループ,RG移行,サブ移行",
+            pageTitle: "Azure リソース移行分析", user: "ユーザー",
+        }
+    };
+    let currentLang = localStorage.getItem('ea2csp_lang') || 'zh';
+
+    function T(key) { return (I18N[currentLang] || I18N.zh)[key] || (I18N.zh)[key] || key; }
+
+    function applyI18n() {
+        document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = T(el.dataset.i18n); });
+        document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = T(el.dataset.i18nPlaceholder); });
+        document.title = T('pageTitle');
+        document.querySelectorAll('.lang-switch button').forEach(b => b.classList.remove('active'));
+        const btn = document.getElementById('lang' + currentLang.charAt(0).toUpperCase() + currentLang.slice(1));
+        if (btn) btn.classList.add('active');
+    }
+
+    function switchLang(lang) {
+        currentLang = lang;
+        localStorage.setItem('ea2csp_lang', lang);
+        applyI18n();
+    }
+
+    const CLIENT_ID = "{{ client_id }}";
+    const AUSTIN_TENANT = "{{ austin_tenant }}";
+    const MGMT_SCOPE = { scopes: ["https://management.azure.com/.default"] };
+    const ARM = "https://management.azure.com";
+
+    let msalInstance = null;
+    let msalReady = false;
+    let accessToken = null;
+    let allResources = [];
+
+    // ===== MSAL Init =====
+    async function initMsal() {
+        try {
+            if (typeof msal === 'undefined') {
+                console.error('MSAL library not loaded');
+                alert(T('msalFail'));
+                return;
+            }
+            msalInstance = new msal.PublicClientApplication({
+                auth: {
+                    clientId: CLIENT_ID,
+                    authority: "https://login.microsoftonline.com/common",
+                    redirectUri: window.location.origin,
+                    knownAuthorities: ["login.microsoftonline.com"],
+                },
+                cache: { cacheLocation: "sessionStorage", storeAuthStateInCookie: false },
+            });
+            if (msalInstance.initialize) {
+                await msalInstance.initialize();
+            }
+            msalReady = true;
+            console.log('MSAL initialized successfully');
+            // Check if already logged in
+            const accounts = msalInstance.getAllAccounts();
+            if (accounts.length > 0) {
+                showLoggedIn(accounts[0]);
+                loadSubscriptions();
+            }
+        } catch (err) {
+            console.error('MSAL init failed:', err);
+            alert(T('msalInitFail') + ': ' + err.message);
+        }
+    }
+
+    // ===== Auth =====
+    async function signIn(tenantId) {
+        if (!msalReady) { alert(T('authLoading')); return; }
+        try {
+            const authority = `https://login.microsoftonline.com/${tenantId}`;
+            const resp = await msalInstance.loginPopup({ ...MGMT_SCOPE, authority, prompt: "select_account" });
+            accessToken = resp.accessToken;
+            showLoggedIn(resp.account);
+            loadSubscriptions();
+        } catch (err) {
+            if (err.errorCode !== "user_cancelled") {
+                alert(T('loginFail') + ": " + err.message);
+            }
+        }
+    }
+
+    function signOut() {
+        msalInstance.logoutPopup();
+        accessToken = null;
+        allResources = [];
+        document.getElementById("navUser").style.display = "none";
+        showView("login");
+    }
+
+    function showLoggedIn(account) {
+        document.getElementById("userName").textContent = account.name || account.username || T('user');
+        document.getElementById("navUser").style.display = "flex";
+        showView("subs");
+    }
+
+    // ===== Azure API Helper =====
+    async function azureGet(url) {
+        const accounts = msalInstance.getAllAccounts();
+        if (accounts.length > 0) {
+            const authority = `https://login.microsoftonline.com/${accounts[0].tenantId}`;
+            const resp = await msalInstance.acquireTokenSilent({ ...MGMT_SCOPE, account: accounts[0], authority });
+            accessToken = resp.accessToken;
+        }
+        const response = await fetch(url, { headers: { "Authorization": `Bearer ${accessToken}` } });
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        return response.json();
+    }
+
+    // ===== Views =====
+    function showView(name) {
+        document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+        document.getElementById("view" + name.charAt(0).toUpperCase() + name.slice(1)).classList.add("active");
+        if (name === "login") document.getElementById("navUser").style.display = "none";
+    }
+
+    // ===== Subscriptions =====
+    async function loadSubscriptions() {
+        showView("subs");
+        document.getElementById("subsLoading").style.display = "";
+        document.getElementById("subsList").innerHTML = "";
+        try {
+            const data = await azureGet(`${ARM}/subscriptions?api-version=2022-12-01`);
+            const subs = data.value || [];
+            document.getElementById("subsLoading").style.display = "none";
+            if (subs.length === 0) {
+                document.getElementById("subsList").innerHTML = '<div class="col-12"><div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> ' + T('noSubs') + '</div></div>';
+                return;
+            }
+            document.getElementById("subsList").innerHTML = subs.map(s => `
+                <div class="col-lg-6">
+                    <div class="card card-hover border-0 shadow-sm">
+                        <div class="card-body d-flex align-items-center">
+                            <div class="flex-grow-1">
+                                <h5 class="card-title mb-1">${esc(s.displayName)}</h5>
+                                <small class="text-muted">${esc(s.subscriptionId)}</small><br>
+                                <span class="badge ${s.state==='Enabled'?'bg-success':'bg-secondary'} mt-1">${esc(s.state)}</span>
+                            </div>
+                            <button class="btn btn-primary btn-sm" onclick="analyzeSubscription('${s.subscriptionId}','${esc(s.displayName)}')">
+                                <i class="bi bi-search"></i> <span data-i18n="analyze">${T('analyze')}</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join("");
+        } catch (err) {
+            document.getElementById("subsLoading").style.display = "none";
+            document.getElementById("subsList").innerHTML = `<div class="col-12"><div class="alert alert-danger">${T('loadFail')}: ${esc(err.message)}</div></div>`;
+        }
+    }
+
+    // ===== Analyze =====
+    async function analyzeSubscription(subId, subName) {
+        showView("resources");
+        document.getElementById("currentSubName").textContent = subName + " (" + subId + ")";
+        document.getElementById("resLoading").style.display = "";
+        document.getElementById("resError").style.display = "none";
+        document.getElementById("tableContainer").style.display = "none";
+        document.getElementById("summaryCards").style.display = "none";
+        document.getElementById("filterRow").style.display = "none";
+        document.getElementById("btnExport").disabled = true;
+        allResources = [];
+
+        try {
+            // Fetch all resources with pagination
+            let url = `${ARM}/subscriptions/${subId}/resources?api-version=2021-04-01`;
+            let rawResources = [];
+            while (url) {
+                const data = await azureGet(url);
+                rawResources = rawResources.concat(data.value || []);
+                url = data.nextLink || null;
+            }
+
+            // Extract resource group from id
+            const toCheck = rawResources.map(r => {
+                let rg = "";
+                const parts = (r.id || "").split("/");
+                for (let i = 0; i < parts.length; i++) {
+                    if (parts[i].toLowerCase() === "resourcegroups" && i + 1 < parts.length) { rg = parts[i+1]; break; }
+                }
+                return { name: r.name, type: r.type, location: r.location || "", resourceGroup: rg };
+            });
+
+            // Check move support via backend
+            const resp = await fetch("/api/check-move", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ resources: toCheck }),
+            });
+            const result = await resp.json();
+            allResources = result.resources;
+
+            document.getElementById("resLoading").style.display = "none";
+            document.getElementById("summaryCards").style.display = "";
+            document.getElementById("filterRow").style.display = "";
+            document.getElementById("tableContainer").style.display = "";
+            document.getElementById("btnExport").disabled = false;
+
+            updateSummary();
+            populateRGFilter();
+            renderTable(allResources);
+        } catch (err) {
+            document.getElementById("resLoading").style.display = "none";
+            const el = document.getElementById("resError");
+            el.style.display = "";
+            el.textContent = T('loadFail') + ": " + err.message;
+        }
+    }
+
+    function updateSummary() {
+        document.getElementById("totalCount").textContent = allResources.length;
+        document.getElementById("movableCount").textContent = allResources.filter(r => r.moveSubscription === "Yes").length;
+        document.getElementById("notMovableCount").textContent = allResources.filter(r => r.moveSubscription === "No").length;
+        document.getElementById("unknownCount").textContent = allResources.filter(r => r.moveSubscription === "Unknown").length;
+    }
+
+    function populateRGFilter() {
+        const rgs = [...new Set(allResources.map(r => r.resourceGroup))].sort();
+        const sel = document.getElementById("filterRG");
+        sel.innerHTML = '<option value="all">' + T('filterAllRG') + '</option>';
+        rgs.forEach(rg => { const o = document.createElement("option"); o.value = rg; o.textContent = rg; sel.appendChild(o); });
+    }
+
+    function applyFilters() {
+        const s = document.getElementById("searchInput").value.toLowerCase();
+        const m = document.getElementById("filterMove").value;
+        const rg = document.getElementById("filterRG").value;
+        renderTable(allResources.filter(r => {
+            if (s && !r.name.toLowerCase().includes(s) && !r.type.toLowerCase().includes(s)) return false;
+            if (m === "yes" && r.moveSubscription !== "Yes") return false;
+            if (m === "no" && r.moveSubscription !== "No") return false;
+            if (m === "unknown" && r.moveSubscription !== "Unknown") return false;
+            if (rg !== "all" && r.resourceGroup !== rg) return false;
+            return true;
+        }));
+    }
+
+    function badge(v) {
+        if (v === "Yes") return '<span class="badge badge-yes">Yes</span>';
+        if (v === "No") return '<span class="badge badge-no">No</span>';
+        return '<span class="badge badge-unknown">Unknown</span>';
+    }
+
+    function esc(t) { const d = document.createElement("div"); d.appendChild(document.createTextNode(t||"")); return d.innerHTML; }
+
+    function renderTable(resources) {
+        document.getElementById("resourceBody").innerHTML = resources.map((r,i) =>
+            `<tr><td>${i+1}</td><td title="${esc(r.name)}"><strong>${esc(r.name)}</strong></td><td title="${esc(r.type)}"><code>${esc(r.type)}</code></td><td>${esc(r.location)}</td><td title="${esc(r.resourceGroup)}">${esc(r.resourceGroup)}</td><td>${badge(r.moveResourceGroup)}</td><td>${badge(r.moveSubscription)}</td></tr>`
+        ).join("");
+    }
+
+    function exportCSV() {
+        const BOM = '\uFEFF';
+        let csv = BOM + T('csvHeader') + '\n';
+        allResources.forEach(r => { csv += `"${r.name}","${r.type}","${r.location}","${r.resourceGroup}","${r.moveResourceGroup}","${r.moveSubscription}"\n`; });
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "azure-move-analysis.csv";
+        link.click();
+    }
+
+    // Boot
+    applyI18n();
+    initMsal().catch(err => console.error('initMsal error:', err));
+
+    // ===== Column Resize =====
+    (function() {
+        let startX, startW, th;
+        document.addEventListener('mousedown', function(e) {
+            if (!e.target.classList.contains('th-resize')) return;
+            th = e.target.parentElement;
+            startX = e.pageX;
+            startW = th.offsetWidth;
+            e.target.classList.add('active');
+            const onMove = function(e2) {
+                const w = Math.max(30, startW + e2.pageX - startX);
+                th.style.width = w + 'px';
+            };
+            const onUp = function() {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                document.querySelectorAll('.th-resize.active').forEach(el => el.classList.remove('active'));
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+    })();
+    </script>
+</body>
+</html>

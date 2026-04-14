@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}错误 - Azure 资源迁移分析{% endblock %}
+{% block content %}
+<div class="container py-5">
+    <div class="alert alert-danger">
+        <h4><i class="bi bi-exclamation-triangle"></i> {{ error }}</h4>
+        <p>{{ description }}</p>
+        <a href="/" class="btn btn-outline-danger">返回首页</a>
+    </div>
+</div>
+{% endblock %}
